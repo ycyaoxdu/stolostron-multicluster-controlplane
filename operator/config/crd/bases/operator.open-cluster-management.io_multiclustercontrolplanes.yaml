@@ -39,7 +39,7 @@ spec:
             properties:
               controlplaneImagePullSpec:
                 default: quay.io/open-cluster-management/multicluster-controlplane
-                description: ControlplaneImagePullSpec represents the desired image
+                description: Image represents the desired image
                   of multicluster controlplane.
                 type: string
               storageOption:

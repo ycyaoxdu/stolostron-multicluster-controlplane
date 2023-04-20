@@ -29,17 +29,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	operatorv1alpha1 "../api/v1alpha1"
-	// operatorv1alpha1 "github.com/stolostron/multicluster-controlplane/operator/api/v1alpha1"
+	operatorv1alpha1 "github.com/stolostron/multicluster-controlplane/operator/api/v1alpha1"
 )
 
-const multiclustercontrolplaneFinalizer = "multicluster-controlplane.operator.open-cluster-management.io/finalizer"
+const multiclusterControlplaneFinalizer = "multicluster-controlplane.operator.open-cluster-management.io/finalizer"
 
 // Definitions to manage status conditions
 const (
@@ -75,27 +75,21 @@ type MulticlusterControlplaneReconciler struct {
 func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// get MulticlusterControlplane
+	// Fetch the MulticlusterControlplane instance
 	mc := &operatorv1alpha1.MulticlusterControlplane{}
 	err := r.Get(ctx, req.NamespacedName, mc)
-	if errors.IsNotFound(err) {
-		// MulticlusterControlplane not found, should create one.
-		log.Info("MulticlusterControlplane resource not found")
-		//TODO(ycyaoxdu): add code logic, name? namespace?
-		mc := &operatorv1alpha1.MulticlusterControlplane{
-			//
-		}
-		err = r.Create(ctx, mc)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
-	}
 	if err != nil {
-		log.Error(err, "fail to get MulticlusterControlplane")
+		if errors.IsNotFound(err) {
+			// MulticlusterControlplane deleted or not created, stop reconcile.
+			log.Info("MulticlusterControlplane resource not found")
+			return ctrl.Result{}, nil
+		}
+		// Error reading the object - requeue the request.
+		log.Error(err, "Failed to get MulticlusterControlplane")
 		return ctrl.Result{}, err
 	}
 
+	// set the status as Unknown when no status are available
 	if mc.Status.Conditions == nil || len(mc.Status.Conditions) == 0 {
 		meta.SetStatusCondition(&mc.Status.Conditions, metav1.Condition{Type: typeAvailableMulticlusterControlplane, Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
 		if err = r.Status().Update(ctx, mc); err != nil {
@@ -109,7 +103,7 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, mc); err != nil {
-			log.Error(err, "Failed to re-fetch mc")
+			log.Error(err, "Failed to re-fetch MulticlusterControlplane")
 			return ctrl.Result{}, err
 		}
 	}
@@ -117,7 +111,7 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 	// Let's add a finalizer. Then, we can define some operations which should
 	// occurs before the custom resource to be deleted.
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
-	if !controllerutil.ContainsFinalizer(mc, multiclustercontrolplaneFinalizer) {
+	if !controllerutil.ContainsFinalizer(mc, multiclusterControlplaneFinalizer) {
 		log.Info("Adding Finalizer for MulticlusterControlplane")
 		if ok := controllerutil.AddFinalizer(mc, multiclustercontrolplaneFinalizer); !ok {
 			log.Error(err, "Failed to add finalizer into the custom resource")
@@ -132,7 +126,8 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 
 	// Check if the MulticlusterControlplane instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
-	if mc.GetDeletionTimestamp() != nil {
+	isMulticlusterControlplaneMarkedToBeDeleted := mc.GetDeletionTimestamp() != nil
+	if isMulticlusterControlplaneMarkedToBeDeleted {
 		if controllerutil.ContainsFinalizer(mc, multiclustercontrolplaneFinalizer) {
 			log.Info("Performing Finalizer Operations for MulticlusterControlplane before delete CR")
 
@@ -148,7 +143,6 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 
 			// Perform all operations required before remove the finalizer and allow
 			// the Kubernetes API to remove the custom resource.
-			//TODO(ycyaoxdu): implement this function
 			r.doFinalizerOperationsForMulticlusterControlplane(mc)
 
 			// TODO(user): If you add operations to the doFinalizerOperationsForMulticlusterControlplane method
@@ -160,7 +154,7 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 			// raise the issue "the object has been modified, please apply
 			// your changes to the latest version and try again" which would re-trigger the reconciliation
 			if err := r.Get(ctx, req.NamespacedName, mc); err != nil {
-				log.Error(err, "Failed to re-fetch mc")
+				log.Error(err, "Failed to re-fetch MulticlusterControlplane")
 				return ctrl.Result{}, err
 			}
 
@@ -192,7 +186,6 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 	err = r.Get(ctx, types.NamespacedName{Name: mc.Name, Namespace: mc.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new deployment
-		// TODO(ycyaoxdu): implement this
 		dep, err := r.deploymentForMulticlusterControlplane(mc)
 		if err != nil {
 			log.Error(err, "Failed to define new Deployment resource for MulticlusterControlplane")
@@ -227,6 +220,8 @@ func (r *MulticlusterControlplaneReconciler) Reconcile(ctx context.Context, req 
 		// Let's return the error for the reconciliation be re-trigged again
 		return ctrl.Result{}, err
 	}
+
+	//TODO:(ycyaoxdu) reconcile the deployment
 
 	// The following implementation will update the status
 	meta.SetStatusCondition(&mc.Status.Conditions, metav1.Condition{Type: typeAvailableMulticlusterControlplane,
@@ -265,25 +260,15 @@ func (r *MulticlusterControlplaneReconciler) doFinalizerOperationsForMulticluste
 func (r *MulticlusterControlplaneReconciler) deploymentForMulticlusterControlplane(
 	mc *operatorv1alpha1.MulticlusterControlplane) (*appsv1.Deployment, error) {
 
-	//TODO(ycyaoxdu): modify the deployment and struct
-	//TODO(ycyaoxdu): generate the cert
-
-	// Get the image from spec
-	image := mc.Spec.ControlplaneImagePullSpec
-	// set labels
+	saName := mc.Spec.ServiceAccountName
+	image := fmt.Sprintf("%s:%s", mc.Spec.ControlplaneImagePullSpec.Image, mc.Spec.ControlplaneImagePullSpec.Version)
+	pullPolicy := mc.Spec.ControlplaneImagePullSpec.PullPolicy
 	ls := labelsForMulticlusterControlplane(mc.Name, image)
-	// handle deploy mode
-	if mc.StorageOption.Mode == operatorv1alpha1.StorageModeEmbedded {
-		//TODO
-	} else {
-		//TODO
-	}
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mc.Name,
 			Namespace: mc.Namespace,
-			Labels:    ls,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: int32(1),
@@ -296,9 +281,10 @@ func (r *MulticlusterControlplaneReconciler) deploymentForMulticlusterControlpla
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image:           image,
-						Name:            "multicluster-controlplane",
-						ImagePullPolicy: corev1.PullIfNotPresent,
+						Name:               "multicluster-controlplane",
+						Image:              image,
+						ImagePullPolicy:    pullPolicy,
+						ServiceAccountName: saName,
 						// Ensure restrictive context for the container
 						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
 						SecurityContext: &corev1.SecurityContext{
@@ -341,61 +327,87 @@ func (r *MulticlusterControlplaneReconciler) deploymentForMulticlusterControlpla
 						},
 						Args: []string{
 							"/multicluster-controlplane",
-							"--authorization-mode=RBAC",
-							"--enable-bootstrap-token-auth",
-							"--service-account-key-file=/controlplane/cert/kube-serviceaccount.key",
-							"--client-ca-file=/controlplane/cert/client-ca.crt",
-							"--client-key-file=/controlplane/cert/client-ca.key",
-							"--enable-bootstrap-token-auth",
-							"--enable-priority-and-fairness=false",
-							"--api-audiences=",
-							"--v=1",
-							"--service-account-lookup=false",
-							"--service-account-signing-key-file=/controlplane/cert/kube-serviceaccount.key",
-							"--enable-admission-plugins=NamespaceLifecycle,ServiceAccount,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ManagedClusterMutating,ManagedClusterValidating,ManagedClusterSetBindingValidating",
-							"--bind-address=0.0.0.0",
-							"--secure-port=9443",
-							"--tls-cert-file=/controlplane/cert/serving-kube-apiserver.crt",
-							"--tls-private-key-file=/controlplane/cert/serving-kube-apiserver.key",
-							"--feature-gates=DefaultClusterSet=true,OpenAPIV3=false,AddonManagement=true",
-							"--storage-backend=etcd3",
-							"--enable-embedded-etcd=true",
-							"--embedded-etcd-directory=/.embedded-etcd",
-							"--etcd-servers=https://127.0.0.1:2379",
-							"--service-cluster-ip-range=10.0.0.0/24",
-							"--service-account-issuer=https://kubernetes.default.svc",
-							"--external-hostname=API_HOST",
-							"--profiling=false",
+							"server",
+						},
+						LivenessProbe: &corev1.Probe{
+							httpGet: &corev1.HTTPGetAction{
+								Path:   "/livez",
+								Scheme: corev1.URISchemeHTTPS,
+								Port:   intstr.FromInt(9443),
+							},
+							FailureThreshold:    8,
+							InitialDelaySeconds: 10,
+							PeriodSeconds:       10,
+							SuccessThreshold:    1,
+							TimeoutSeconds:      15,
+						},
+						ReadinessProbe: &corev1.Probe{
+							httpGet: &corev1.HTTPGetAction{
+								Path:   "/readyz",
+								Scheme: corev1.URISchemeHTTPS,
+								Port:   intstr.FromInt(9443),
+							},
+							FailureThreshold:    3,
+							InitialDelaySeconds: 2,
+							PeriodSeconds:       1,
+							SuccessThreshold:    1,
+							TimeoutSeconds:      15,
+						},
+						StartupProbe: &corev1.Probe{
+							httpGet: &corev1.HTTPGetAction{
+								Path:   "/livez",
+								Scheme: corev1.URISchemeHTTPS,
+								Port:   intstr.FromInt(9443),
+							},
+							FailureThreshold:    24,
+							InitialDelaySeconds: 10,
+							PeriodSeconds:       10,
+							SuccessThreshold:    1,
+							TimeoutSeconds:      15,
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							corev1.VolumeMount{
-								Name:      "controlplane-cert",
-								MountPath: "/controlplane/cert",
-								ReadOnly:  true,
+								Name:      "controlplane-config",
+								MountPath: "/controlplane_config",
 							},
 							corev1.VolumeMount{
-								Name:      "embedded-etcd",
-								MountPath: "/.embedded-etcd",
+								Name:      "ocm-data",
+								MountPath: "/.ocm",
 							},
 						},
 					}},
 					Volumes: []corev1.Volume{
 						corev1.Volume{
-							Name: "controlplane-cert",
+							Name: "controlplane-config",
 							Secret: corev1.SecretVolumeSource{
-								SecretName: "controlplane-cert",
+								SecretName: "controlplane-config",
 							},
 						},
 						corev1.Volume{
-							Name: "embedded-etcd",
-							EmptyDir: corev1.EmptyDirVolumeSource{
-								SizeLimit: resource.NewQuantity(500*1024*1024, resource.BinarySI),
-							}
+							Name: "ocm-data",
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "multicluster-controlplane-pvc-volume",
+							},
 						},
 					},
 				},
 			},
 		},
+	}
+
+	if mc.Spec.AutoApprovalBootstrapUsers != "" {
+		dep.Spec.Template.Spec.Containers[0].Args = append(dep.Spec.Template.Spec.Containers[0].Args,
+			fmt.Sprintf("--cluster-auto-approval-users=%s", mc.Spec.AutoApprovalBootstrapUsers))
+	}
+
+	if mc.Spec.EnableSelfManagement {
+		dep.Spec.Template.Spec.Containers[0].Args = append(dep.Spec.Template.Spec.Containers[0].Args,
+			"--enable-self-management")
+	}
+
+	if mc.Spec.EnableDelegatingAuthentication {
+		dep.Spec.Template.Spec.Containers[0].Args = append(dep.Spec.Template.Spec.Containers[0].Args,
+			"--enable-delegating-authentication")
 	}
 
 	// Set the ownerRef for the Deployment
@@ -409,12 +421,11 @@ func (r *MulticlusterControlplaneReconciler) deploymentForMulticlusterControlpla
 // labelsForMulticlusterControlplane returns the labels for selecting the resources
 // More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
 func labelsForMulticlusterControlplane(name string, image string) map[string]string {
-	var imageTag string
-	imageTag = strings.Split(image, ":")[1]
+	version := strings.Split(image, ":")[1]
 
 	return map[string]string{"app.kubernetes.io/name": "MulticlusterControlplane",
 		"app.kubernetes.io/instance":   name,
-		"app.kubernetes.io/version":    imageTag,
+		"app.kubernetes.io/version":    version,
 		"app.kubernetes.io/part-of":    "multicluster-controlplane-operator",
 		"app.kubernetes.io/created-by": "controller-manager",
 	}
@@ -424,5 +435,6 @@ func labelsForMulticlusterControlplane(name string, image string) map[string]str
 func (r *MulticlusterControlplaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1alpha1.MulticlusterControlplane{}).
+		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }

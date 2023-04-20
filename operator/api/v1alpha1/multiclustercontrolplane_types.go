@@ -55,6 +55,23 @@ type ControlplaneStorageOption struct {
 	External *ExternalEtcdConfiguration `json:"external,omitempty"`
 }
 
+type ControlplaneImagePullSpec struct {
+	// Image represents the desired image of multicluster controlplane.
+	// +optional
+	// +kubebuilder:default=quay.io/open-cluster-management/multicluster-controlplane
+	Image string `json:"image,omitempty"`
+
+	// Version represents the desired version of multicluster controlplane.
+	// +optional
+	// +kubebuilder:default=latest
+	Version string `json:"version,omitempty"`
+
+	// PullPolicy represents the desired image pull policy of multicluster controlplane.
+	// +optional
+	// +kubebuilder:default=IfNotPresent
+	PullPolicy string `json:"pullPolicy,omitempty"`
+}
+
 // MulticlusterControlplaneSpec defines the desired state of MulticlusterControlplane
 type MulticlusterControlplaneSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -62,14 +79,18 @@ type MulticlusterControlplaneSpec struct {
 
 	// ControlplaneImagePullSpec represents the desired image of multicluster controlplane.
 	// +optional
-	// +kubebuilder:default=quay.io/open-cluster-management/multicluster-controlplane
-	ControlplaneImagePullSpec string `json:"controlplaneImagePullSpec,omitempty"`
+	ControlplaneImagePullSpec ControlplaneImagePullSpec `json:"controlplaneImagePullSpec,omitempty"`
 
 	// StorageOption contains the options of storage.
 	// Embedded mode is used if StorageOption is not set.
 	// +optional
 	// +kubebuilder:default={mode: Embedded}
 	StorageOption ControlplaneStorageOption `json:"storageOption,omitempty"`
+
+	ServiceAccountName             string `json:"serviceAccountName,omitempty"`
+	AutoApprovalBootstrapUsers     string `json:"autoApprovalBootstrapUsers,omitempty"`
+	EnableSelfManagement           bool   `json:"enableSelfManagement,omitempty"`
+	EnableDelegatingAuthentication bool   `json:"enableDelegatingAuthentication,omitempty"`
 }
 
 // MulticlusterControlplaneStatus defines the observed state of MulticlusterControlplane
