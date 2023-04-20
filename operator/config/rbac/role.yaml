@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - operator.open-cluster-management.io
+  resources:
+  - multiclustercontrolplanes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.open-cluster-management.io
+  resources:
+  - multiclustercontrolplanes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - operator.open-cluster-management.io
+  resources:
+  - multiclustercontrolplanes/status
+  verbs:
+  - get
+  - patch
+  - update
